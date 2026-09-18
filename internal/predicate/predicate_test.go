@@ -82,6 +82,30 @@ func TestDeletionTimestampAdded(t *testing.T) {
 	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: deleting, ObjectNew: deleting.DeepCopy()}))
 }
 
+func TestBucketClaimBeingDeletedAnnotationAdded(t *testing.T) {
+	deletionTimestamp := meta.Now()
+	old := &cosiapi.Bucket{}
+	old.DeletionTimestamp = &deletionTimestamp
+
+	annotated := old.DeepCopy()
+	annotated.Annotations = map[string]string{cosiapi.BucketClaimBeingDeletedAnnotation: ""}
+
+	predicate := BucketClaimBeingDeletedAnnotationAdded()
+
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: annotated}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: annotated, ObjectNew: annotated.DeepCopy()}))
+
+	unrelatedAnnotation := old.DeepCopy()
+	unrelatedAnnotation.Annotations = map[string]string{"some-other-annotation": ""}
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: unrelatedAnnotation}))
+
+	// annotation added, but object is not (yet) being deleted: should not enqueue
+	notDeleting := &cosiapi.Bucket{}
+	notDeletingAnnotated := notDeleting.DeepCopy()
+	notDeletingAnnotated.Annotations = map[string]string{cosiapi.BucketClaimBeingDeletedAnnotation: ""}
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: notDeleting, ObjectNew: notDeletingAnnotated}))
+}
+
 func Test_handoffOccurred(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	logger := ctrl.Log.WithName("predicate")

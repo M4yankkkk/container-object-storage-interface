@@ -536,6 +536,32 @@ func TestBucketClaimReconcile(t *testing.T) {
 						deletionTestSuite(t, initBootstrapped)
 					})
 				})
+
+				t.Run("bucket deleted before claim", func(t *testing.T) {
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, initBucket := getClaimAndBucket(bootstrapped)
+					require.NotNil(t, initBucket)
+
+					// give Bucket a finalizer like the Sidecar would
+					initBucket, err := sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.NsName(initBucket))
+					require.NoError(t, err)
+					require.Contains(t, initBucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+
+					initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
+					require.NoError(t, r.Update(ctx, initBucket))
+
+					require.NoError(t, r.Delete(ctx, initBucket)) // delete Bucket before BucketClaim
+
+					bucket := &cosiapi.Bucket{}
+					require.NoError(t, r.Get(ctx, cositest.NsName(initBucket), bucket))
+					assert.NotZero(t, bucket.GetDeletionTimestamp())
+					assert.NotContains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+
+					deletionTestSuite(t, bootstrapped)
+				})
 			})
 		}
 	})
